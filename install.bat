@@ -1,231 +1,170 @@
 @echo off
-REM Ovie Programming Language - Windows Command Prompt Installer
-REM v2.3 Self-Hosted Compiler Installation Script
-REM This batch file installs Ovie on Windows systems via Command Prompt
-
+REM ============================================================================
+REM  Ovie Programming Language v2.3.0 — Windows Batch Installer
+REM  Works by cloning the repo and copying the prebuilt windows-x64 binaries.
+REM  No Rust, no GitHub release zip needed.
+REM ============================================================================
 setlocal enabledelayedexpansion
 
-REM Configuration
 set "OVIE_VERSION=2.3.0"
-set "INSTALL_DIR=%USERPROFILE%\.local\bin"
-set "TEMP_DIR=%TEMP%\ovie-install"
-set "GITHUB_REPO=https://github.com/southwarridev/ovie"
+set "INSTALL_DIR=C:\Program Files\Ovie"
+set "BIN_DIR=%INSTALL_DIR%\bin"
+set "GITHUB_REPO=https://github.com/southwarridev/ovie.git"
 
 echo.
-echo ╔══════════════════════════════════════════════════════════════╗
-echo ║                    Ovie Programming Language                 ║
-echo ║                        v2.3 - Self-Hosted                ║
-echo ║                           Version %OVIE_VERSION%                     ║
-echo ╚══════════════════════════════════════════════════════════════╝
-echo.
-echo    ██████╗ ██╗   ██╗██╗███████╗
-echo   ██╔═══██╗██║   ██║██║██╔════╝
-echo   ██║   ██║██║   ██║██║█████╗  
-echo   ██║   ██║╚██╗ ██╔╝██║██╔══╝  
-echo   ╚██████╔╝ ╚████╔╝ ██║███████╗
-echo    ╚═════╝   ╚═══╝  ╚═╝╚══════╝
-echo.
-echo   Natural Language Programming
-echo   AI-Friendly • Memory Safe • Self-Hosted
+echo   ============================================================================
+echo   ^|                                                                          ^|
+echo   ^|              OVIE PROGRAMMING LANGUAGE v2.3.0                           ^|
+echo   ^|              Complete Module System - Full Package                       ^|
+echo   ^|              Publisher: Ovie Language Team  ^|  MIT License              ^|
+echo   ^|                                                                          ^|
+echo   ============================================================================
 echo.
 
-echo [INFO] Installing Ovie Programming Language v%OVIE_VERSION%...
-echo.
-
-REM Check if we're running as administrator (optional but recommended)
+REM ── Check for Admin ──────────────────────────────────────────────────────────
 net session >nul 2>&1
-if %errorLevel% == 0 (
-    echo [INFO] Running with administrator privileges
-) else (
-    echo [WARNING] Not running as administrator - installing to user directory
+if %errorLevel% neq 0 (
+    echo   [WARN] Not running as Administrator.
+    echo   [WARN] Please right-click this file and choose "Run as administrator".
+    echo.
+    pause
+    exit /b 1
 )
+echo   Running as Administrator: YES
+echo.
 
-REM Create install directory
-if not exist "%INSTALL_DIR%" (
-    echo [INFO] Creating install directory: %INSTALL_DIR%
-    mkdir "%INSTALL_DIR%" 2>nul
-    if !errorlevel! neq 0 (
-        echo [ERROR] Failed to create install directory
-        pause
-        exit /b 1
-    )
-)
-
-REM Check for Git
+REM ── Check for Git ────────────────────────────────────────────────────────────
 git --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Git is required but not found in PATH
-    echo [ERROR] Please install Git from: https://git-scm.com/download/win
-    echo [ERROR] Or download Ovie manually from: %GITHUB_REPO%/releases
+    echo   [ERROR] Git is not installed or not in PATH.
+    echo   [ERROR] Download Git from: https://git-scm.com/download/win
+    echo   [ERROR] Install it, then re-run this installer.
+    echo.
     pause
     exit /b 1
 )
 
-REM Try to download pre-built binaries first
-echo [INFO] Attempting to download pre-built binaries...
-set "DOWNLOAD_URL=%GITHUB_REPO%/releases/download/v%OVIE_VERSION%/ovie-v%OVIE_VERSION%-windows-x64.zip"
-set "TEMP_ZIP=%TEMP%\ovie-windows-x64.zip"
+echo   Install directory : %INSTALL_DIR%
+echo   Binaries          : %BIN_DIR%
+echo.
+set /p CONFIRM="  Press ENTER to install or type 'cancel' to exit: "
+if /i "!CONFIRM!"=="cancel" exit /b 0
+echo.
 
-REM Use PowerShell to download (available on all modern Windows)
-powershell -Command "try { Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%TEMP_ZIP%' -ErrorAction Stop; exit 0 } catch { exit 1 }" >nul 2>&1
+REM ── Step 1: Find or clone the repo ───────────────────────────────────────────
+echo   [1/5] Locating Ovie source...
 
-if %errorlevel% == 0 (
-    echo [SUCCESS] Downloaded pre-built binaries
-    
-    REM Extract using PowerShell
-    powershell -Command "Expand-Archive -Path '%TEMP_ZIP%' -DestinationPath '%TEMP_DIR%' -Force" >nul 2>&1
-    if !errorlevel! == 0 (
-        echo [INFO] Extracting binaries...
-        xcopy "%TEMP_DIR%\windows-x64\*" "%INSTALL_DIR%\" /E /Y >nul 2>&1
-        del "%TEMP_ZIP%" >nul 2>&1
-        rmdir /s /q "%TEMP_DIR%" >nul 2>&1
-        echo [SUCCESS] Pre-built binaries installed
-        goto :verify_installation
-    )
-)
+set "REPO_ROOT="
+set "TEMP_CLONE="
 
-echo [WARNING] Pre-built binaries not available. Building from source...
-
-REM Clean up temp directory
-if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%" >nul 2>&1
-
-REM Clone repository
-echo [INFO] Cloning Ovie repository...
-git clone "%GITHUB_REPO%.git" "%TEMP_DIR%" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to clone repository
-    pause
-    exit /b 1
-)
-
-cd /d "%TEMP_DIR%"
-
-REM Check if we have oviec binary for self-hosted build
-if exist "oviec.exe" (
-    echo [INFO] Building with self-hosted Ovie compiler...
-    oviec.exe --build-all --output-dir="%INSTALL_DIR%" >nul 2>&1
-    if !errorlevel! == 0 (
-        echo [SUCCESS] Built with self-hosted compiler!
-        goto :copy_resources
-    )
-)
-
-REM Check for Rust as fallback (bootstrap only)
-cargo --version >nul 2>&1
-if %errorlevel% == 0 (
-    echo [WARNING] Using Rust for bootstrap build (one-time only)...
-    echo [INFO] Building Ovie compiler...
-    cargo build --release --workspace >nul 2>&1
+REM If this script sits inside the cloned repo, windows-x64\bin\oviec.exe will
+REM be right next to it. Check that first — no internet needed.
+if exist "%~dp0windows-x64\bin\oviec.exe" (
+    set "REPO_ROOT=%~dp0"
+    echo   [OK] Using local repo at %~dp0
+) else (
+    REM Fresh PC — clone from GitHub
+    set "TEMP_CLONE=%TEMP%\ovie-install"
+    if exist "!TEMP_CLONE!" rmdir /s /q "!TEMP_CLONE!" >nul 2>&1
+    echo   [>>] Cloning from GitHub (this takes ~30 seconds)...
+    git clone --depth 1 "%GITHUB_REPO%" "!TEMP_CLONE!"
     if !errorlevel! neq 0 (
-        echo [ERROR] Build failed. Please check your Rust installation.
+        echo   [ERROR] git clone failed. Check your internet connection.
         pause
         exit /b 1
     )
-    
-    REM Copy binaries
-    copy "target\release\ovie.exe" "%INSTALL_DIR%\" >nul 2>&1
-    copy "target\release\oviec.exe" "%INSTALL_DIR%\" >nul 2>&1
-    echo [SUCCESS] Bootstrap build completed
-) else (
-    echo [ERROR] Cannot build Ovie: No self-hosted compiler or Rust toolchain found
-    echo [ERROR] Please install Rust from: https://rustup.rs/
-    echo [ERROR] Or download a pre-built binary from: %GITHUB_REPO%/releases
+    set "REPO_ROOT=!TEMP_CLONE!"
+    echo   [OK] Cloned to !TEMP_CLONE!
+)
+
+set "SRC=%REPO_ROOT%windows-x64"
+
+REM Sanity-check
+if not exist "%SRC%\bin\oviec.exe" (
+    echo   [ERROR] Cannot find windows-x64\bin\oviec.exe in the repo.
+    echo   [ERROR] The repo layout may have changed.
     pause
     exit /b 1
 )
 
-:copy_resources
-REM Copy additional resources
-if exist "ovie.png" copy "ovie.png" "%INSTALL_DIR%\" >nul 2>&1
-if exist "README.md" copy "README.md" "%INSTALL_DIR%\" >nul 2>&1
-if exist "LICENSE" copy "LICENSE" "%INSTALL_DIR%\" >nul 2>&1
-
-REM Copy standard library and examples
-if exist "std" xcopy "std" "%INSTALL_DIR%\std\" /E /Y >nul 2>&1
-if exist "examples" xcopy "examples" "%INSTALL_DIR%\examples\" /E /Y >nul 2>&1
-if exist "docs" xcopy "docs" "%INSTALL_DIR%\docs\" /E /Y >nul 2>&1
-
-:verify_installation
-REM Clean up
-cd /d "%USERPROFILE%"
-if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%" >nul 2>&1
-
-REM Verify installation
-echo [INFO] Verifying installation...
-if exist "%INSTALL_DIR%\ovie.exe" (
-    if exist "%INSTALL_DIR%\oviec.exe" (
-        echo [SUCCESS] Ovie v2.3.0 installed successfully!
-        echo.
-        echo [INFO] Installation location: %INSTALL_DIR%
-        echo [INFO] Binaries installed:
-        echo   • ovie.exe  - CLI tool and project manager
-        echo   • oviec.exe - Self-hosted Ovie compiler
-        echo.
-    ) else (
-        echo [ERROR] oviec.exe not found in installation directory
-        goto :installation_failed
-    )
-) else (
-    echo [ERROR] ovie.exe not found in installation directory
-    goto :installation_failed
+REM ── Step 2: Create directories ───────────────────────────────────────────────
+echo.
+echo   [2/5] Creating install directories...
+for %%D in ("%INSTALL_DIR%" "%BIN_DIR%" "%INSTALL_DIR%\std" "%INSTALL_DIR%\examples" "%INSTALL_DIR%\docs") do (
+    if not exist "%%~D" mkdir "%%~D" >nul 2>&1
 )
+echo   [OK] Directories created at %INSTALL_DIR%
 
-REM Add to PATH
-echo [INFO] Adding %INSTALL_DIR% to user PATH...
-for /f "usebackq tokens=2,*" %%A in (`reg query HKCU\Environment /v PATH 2^>nul`) do set "CURRENT_PATH=%%B"
-if not defined CURRENT_PATH set "CURRENT_PATH="
+REM ── Step 3: Copy binaries ────────────────────────────────────────────────────
+echo.
+echo   [3/5] Copying binaries...
+copy /y "%SRC%\bin\oviec.exe" "%BIN_DIR%\oviec.exe" >nul
+echo   [OK] oviec.exe installed
 
-echo !CURRENT_PATH! | findstr /C:"%INSTALL_DIR%" >nul
+if exist "%SRC%\ovie.exe" (
+    copy /y "%SRC%\ovie.exe" "%BIN_DIR%\ovie.exe" >nul
+) else (
+    copy /y "%BIN_DIR%\oviec.exe" "%BIN_DIR%\ovie.exe" >nul
+)
+echo   [OK] ovie.exe installed
+
+REM ── Step 4: Copy stdlib, examples, docs ──────────────────────────────────────
+echo.
+echo   [4/5] Copying standard library, examples and docs...
+if exist "%SRC%\std"      xcopy /e /y /q "%SRC%\std\*"      "%INSTALL_DIR%\std\"      >nul 2>&1
+if exist "%SRC%\examples" xcopy /e /y /q "%SRC%\examples\*" "%INSTALL_DIR%\examples\" >nul 2>&1
+if exist "%SRC%\docs"     xcopy /e /y /q "%SRC%\docs\*"     "%INSTALL_DIR%\docs\"     >nul 2>&1
+
+for %%F in (README.md LICENSE RELEASE_NOTES_v2.3.md ovie.png ovie.svg ovie.toml.template) do (
+    if exist "%SRC%\%%F" copy /y "%SRC%\%%F" "%INSTALL_DIR%\%%F" >nul 2>&1
+)
+echo   [OK] Files copied
+
+REM ── Step 5: Add to PATH ───────────────────────────────────────────────────────
+echo.
+echo   [5/5] Adding %BIN_DIR% to system PATH...
+REM Read current system PATH from registry
+for /f "usebackq tokens=2,*" %%A in (`reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul`) do set "CURRENT_PATH=%%B"
+
+echo !CURRENT_PATH! | findstr /i /c:"%BIN_DIR%" >nul
 if %errorlevel% neq 0 (
-    if defined CURRENT_PATH (
-        set "NEW_PATH=!CURRENT_PATH!;%INSTALL_DIR%"
-    ) else (
-        set "NEW_PATH=%INSTALL_DIR%"
-    )
-    reg add HKCU\Environment /v PATH /t REG_EXPAND_SZ /d "!NEW_PATH!" /f >nul 2>&1
-    if !errorlevel! == 0 (
-        echo [SUCCESS] Added to PATH. Please restart your command prompt.
-    ) else (
-        echo [WARNING] Failed to add to PATH automatically.
-        echo [INFO] Please add %INSTALL_DIR% to your PATH manually.
-    )
+    reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path /t REG_EXPAND_SZ /d "!CURRENT_PATH!;%BIN_DIR%" /f >nul 2>&1
+    echo   [OK] Added to system PATH
 ) else (
-    echo [INFO] Directory already in PATH
+    echo   [OK] Already in system PATH
 )
 
-echo.
-echo ╔══════════════════════════════════════════════════════════════╗
-echo ║                    Installation Complete!                   ║
-echo ╚══════════════════════════════════════════════════════════════╝
-echo.
-echo 🎯 v2.3 Features Available:
-echo   • Natural language programming syntax
-echo   • Self-hosted compilation with oviec
-echo   • LLVM backend optimization
-echo   • WebAssembly compilation target
-echo   • Aproko static analysis
-echo   • Cross-platform deployment
-echo   • Memory safety guarantees
-echo   • AI-friendly development
-echo.
-echo 🚀 Quick Start:
-echo   ovie new my-project    # Create a new project
-echo   cd my-project
-echo   ovie run               # Run your project
-echo   ovie aproko            # Run code analysis
-echo   ovie compile --wasm    # Compile to WebAssembly
-echo.
-echo 📚 Documentation: https://ovie-lang.org
-echo 💬 Community: https://github.com/southwarridev/ovie
-echo.
-echo Press any key to exit...
-pause >nul
-exit /b 0
+REM ── Cleanup temp clone ────────────────────────────────────────────────────────
+if defined TEMP_CLONE (
+    if exist "!TEMP_CLONE!" rmdir /s /q "!TEMP_CLONE!" >nul 2>&1
+)
 
-:installation_failed
-echo [ERROR] Installation verification failed
-echo [ERROR] Please check the error messages above and try again
-echo [ERROR] For help, visit: https://github.com/southwarridev/ovie/issues
+REM ── Verify ────────────────────────────────────────────────────────────────────
+echo.
+echo   Verifying...
+"%BIN_DIR%\oviec.exe" --version 2>&1 | findstr /i "ovie"
+if %errorlevel% neq 0 (
+    echo   [ERROR] Verification failed — oviec.exe did not run correctly.
+    pause
+    exit /b 1
+)
+echo   [OK] Verification passed
+
+REM ── Done ──────────────────────────────────────────────────────────────────────
+echo.
+echo   ============================================================================
+echo   ^|                  INSTALLATION COMPLETE!                                 ^|
+echo   ============================================================================
+echo.
+echo   IMPORTANT: Restart your terminal for PATH changes to take effect.
+echo.
+echo   Quick start:
+echo     oviec --version              ^| Check version
+echo     oviec --self-check           ^| Validate installation
+echo     oviec run examples\hello.ov  ^| Run hello world
+echo     oviec new my-project         ^| Create new project
+echo.
+echo   Docs: https://southwarridev.github.io/ovie/docs/book/index.html
 echo.
 pause
-exit /b 1
+exit /b 0

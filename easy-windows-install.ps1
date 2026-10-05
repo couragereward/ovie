@@ -1,21 +1,38 @@
 #Requires -Version 5.0
 # ============================================================================
-#                    OVIE PROGRAMMING LANGUAGE v2.3.0
-#                    PowerShell One-Click Installer
-#                    Publisher: Ovie Language Team
-#                    License: MIT Open Source
+#  Ovie Programming Language v2.3.0 — Easy One-Click Windows Installer
+#
+#  Can be run two ways:
+#    1. From inside the cloned repo  — uses local windows-x64\ binaries (fast)
+#    2. From a fresh PC via iwr | iex — clones the repo first, then installs
+#
+#  No Rust. No GitHub release zip. Just git + this script.
+#
+#  Usage (fresh PC, PowerShell as Admin):
+#    iwr -useb https://raw.githubusercontent.com/southwarridev/ovie/main/easy-windows-install.ps1 | iex
+#
+#  Usage (already cloned):
+#    powershell -ExecutionPolicy Bypass -File easy-windows-install.ps1
 # ============================================================================
 
-# Self-elevate to Administrator if not already
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")) {
-    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+# Self-elevate to Administrator if needed
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]"Administrator")) {
+    Write-Host "  Requesting Administrator privileges..." -ForegroundColor Yellow
+    if ($PSCommandPath) {
+        # Running from a saved .ps1 file — re-launch it elevated
+        Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    } else {
+        # Running via iwr | iex — re-download and run elevated
+        $relaunchCmd = "iwr -useb https://raw.githubusercontent.com/southwarridev/ovie/main/easy-windows-install.ps1 | iex"
+        Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$relaunchCmd`"" -Verb RunAs
+    }
     exit
 }
 
 $Host.UI.RawUI.WindowTitle = "Ovie Programming Language v2.3.0 - Installer"
 
-# Banner
+# ── Banner ────────────────────────────────────────────────────────────────────
 Clear-Host
 Write-Host ""
 Write-Host "  ============================================================================" -ForegroundColor Cyan
@@ -32,15 +49,12 @@ Write-Host ""
 $OvieVersion = "2.3.0"
 $InstallDir  = "C:\Program Files\Ovie"
 $BinDir      = "$InstallDir\bin"
-$GithubRepo  = "https://github.com/southwarridev/ovie"
-$ReleaseBase = "$GithubRepo/releases/download/v$OvieVersion"
+$GithubRepo  = "https://github.com/southwarridev/ovie.git"
 
 Write-Host "  This installer will set up Ovie v$OvieVersion with:" -ForegroundColor White
-Write-Host "    [*] oviec.exe  - Ovie Compiler (self-hosted, v2.3.0)" -ForegroundColor Green
+Write-Host "    [*] oviec.exe  - Ovie Compiler" -ForegroundColor Green
 Write-Host "    [*] ovie.exe   - Ovie CLI and project manager" -ForegroundColor Green
 Write-Host "    [*] std\       - Complete standard library (11 modules)" -ForegroundColor Green
-Write-Host "    [*] std\module - v2.3 Module System (NEW)" -ForegroundColor Yellow
-Write-Host "    [*] std\aproko - Aproko Knowledge Base (NEW)" -ForegroundColor Yellow
 Write-Host "    [*] examples\  - 22+ runnable example programs" -ForegroundColor Green
 Write-Host "    [*] docs\      - Complete documentation" -ForegroundColor Green
 Write-Host "    [*] PATH       - Added to system PATH" -ForegroundColor Green
@@ -54,138 +68,108 @@ if ($confirm -eq "cancel") { exit 0 }
 Write-Host ""
 
 try {
-    # Step 1: Create directories
-    Write-Host "  [1/7] Creating installation directories..." -ForegroundColor Cyan
-    @($InstallDir, $BinDir, "$InstallDir\std", "$InstallDir\examples", "$InstallDir\docs") | ForEach-Object {
-        New-Item -ItemType Directory -Path $_ -Force | Out-Null
+    # ── Step 1: Find or clone the repo ───────────────────────────────────────
+    Write-Host "  [1/6] Locating Ovie source..." -ForegroundColor Cyan
+
+    $RepoRoot  = $null
+    $TempClone = $null
+
+    # If this script is inside a cloned repo, the prebuilt binary will be here
+    $localCheck = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+    if (Test-Path (Join-Path $localCheck "windows-x64\bin\oviec.exe")) {
+        $RepoRoot = $localCheck
+        Write-Host "  [OK] Using local repo at $RepoRoot" -ForegroundColor Green
+    } else {
+        # Check if git is available before trying to clone
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-Host "  [ERROR] Git is not installed." -ForegroundColor Red
+            Write-Host "  [ERROR] Install Git from https://git-scm.com/download/win then re-run." -ForegroundColor Red
+            exit 1
+        }
+
+        $TempClone = "$env:TEMP\ovie-install-$(Get-Random)"
+        Write-Host "  [>>] Cloning from GitHub (this takes ~30 seconds)..." -ForegroundColor Yellow
+        git clone --depth 1 $GithubRepo $TempClone 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] git clone failed. Check your internet connection." -ForegroundColor Red
+            exit 1
+        }
+        $RepoRoot = $TempClone
+        Write-Host "  [OK] Cloned to $TempClone" -ForegroundColor Green
+    }
+
+    $Src = Join-Path $RepoRoot "windows-x64"
+
+    if (-not (Test-Path "$Src\bin\oviec.exe")) {
+        Write-Host "  [ERROR] windows-x64\bin\oviec.exe not found in repo. Layout may have changed." -ForegroundColor Red
+        exit 1
+    }
+
+    # ── Step 2: Create directories ───────────────────────────────────────────
+    Write-Host ""
+    Write-Host "  [2/6] Creating installation directories..." -ForegroundColor Cyan
+    foreach ($d in @($InstallDir, $BinDir, "$InstallDir\std", "$InstallDir\examples", "$InstallDir\docs")) {
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
     }
     Write-Host "  [OK] Directories created at $InstallDir" -ForegroundColor Green
 
-    # Step 2: Download or copy binaries
+    # ── Step 3: Copy binaries ────────────────────────────────────────────────
     Write-Host ""
-    Write-Host "  [2/7] Installing Ovie compiler (oviec.exe)..." -ForegroundColor Cyan
-    
-    $localOviec = Join-Path $PSScriptRoot "oviec.exe"
-    if (Test-Path $localOviec) {
-        # Local install from package
-        Copy-Item $localOviec "$BinDir\oviec.exe" -Force
-        Write-Host "  [OK] oviec.exe installed from local package" -ForegroundColor Green
-    } else {
-        # Download from GitHub releases
-        Write-Host "  Downloading oviec.exe from GitHub..." -ForegroundColor Yellow
-        $url = "$ReleaseBase/ovie-v$OvieVersion-windows-x64.zip"
-        $zip = "$env:TEMP\ovie-v$OvieVersion-windows-x64.zip"
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-            Expand-Archive -Path $zip -DestinationPath "$env:TEMP\ovie-extract" -Force
-            $extracted = Get-ChildItem "$env:TEMP\ovie-extract" -Recurse -Filter "oviec.exe" | Select-Object -First 1
-            if ($extracted) {
-                Copy-Item $extracted.FullName "$BinDir\oviec.exe" -Force
-            }
-            Remove-Item $zip -Force -ErrorAction SilentlyContinue
-            Remove-Item "$env:TEMP\ovie-extract" -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "  [OK] oviec.exe downloaded and installed" -ForegroundColor Green
-        } catch {
-            Write-Host "  [WARN] Could not download from GitHub. Checking source..." -ForegroundColor Yellow
-            # Try to find in current directory tree
-            $found = Get-ChildItem $PSScriptRoot -Recurse -Filter "oviec.exe" | Select-Object -First 1
-            if ($found) {
-                Copy-Item $found.FullName "$BinDir\oviec.exe" -Force
-                Write-Host "  [OK] oviec.exe found and installed" -ForegroundColor Green
-            } else {
-                throw "oviec.exe not found. Please download the full package from: $GithubRepo/releases"
-            }
-        }
-    }
+    Write-Host "  [3/6] Installing Ovie compiler (oviec.exe)..." -ForegroundColor Cyan
+    Copy-Item "$Src\bin\oviec.exe" "$BinDir\oviec.exe" -Force
+    Write-Host "  [OK] oviec.exe installed" -ForegroundColor Green
 
-    # Step 3: Install ovie.exe (CLI)
     Write-Host ""
-    Write-Host "  [3/7] Installing Ovie CLI (ovie.exe)..." -ForegroundColor Cyan
-    $localOvie = Join-Path $PSScriptRoot "ovie.exe"
-    if (Test-Path $localOvie) {
-        Copy-Item $localOvie "$BinDir\ovie.exe" -Force
+    Write-Host "  [4/6] Installing Ovie CLI (ovie.exe)..." -ForegroundColor Cyan
+    if (Test-Path "$Src\ovie.exe") {
+        Copy-Item "$Src\ovie.exe" "$BinDir\ovie.exe" -Force
     } else {
-        # Create ovie.exe as a copy of oviec for now
         Copy-Item "$BinDir\oviec.exe" "$BinDir\ovie.exe" -Force
     }
     Write-Host "  [OK] ovie.exe installed" -ForegroundColor Green
 
-    # Step 4: Install standard library
+    # ── Step 4: Copy stdlib, examples, docs ─────────────────────────────────
     Write-Host ""
-    Write-Host "  [4/7] Installing standard library (v2.3 modules)..." -ForegroundColor Cyan
-    $localStd = Join-Path $PSScriptRoot "std"
-    if (Test-Path $localStd) {
-        Copy-Item "$localStd\*" "$InstallDir\std\" -Recurse -Force
-        $stdCount = (Get-ChildItem "$InstallDir\std" -Recurse -File).Count
-        Write-Host "  [OK] Standard library installed ($stdCount files)" -ForegroundColor Green
-        Write-Host "       Modules: core, math, io, fs, time, env, cli, log, testing, module, aproko" -ForegroundColor Gray
-    } else {
-        Write-Host "  [WARN] std directory not found in package" -ForegroundColor Yellow
+    Write-Host "  [5/6] Installing standard library, examples and documentation..." -ForegroundColor Cyan
+
+    if (Test-Path "$Src\std")      { Copy-Item "$Src\std"      "$InstallDir\std"      -Recurse -Force }
+    if (Test-Path "$Src\examples") { Copy-Item "$Src\examples" "$InstallDir\examples" -Recurse -Force }
+    if (Test-Path "$Src\docs")     { Copy-Item "$Src\docs"     "$InstallDir\docs"     -Recurse -Force }
+
+    foreach ($f in @("README.md","LICENSE","RELEASE_NOTES_v2.3.md","ovie.png","ovie.svg","ovie.toml.template")) {
+        $fp = Join-Path $Src $f
+        if (Test-Path $fp) { Copy-Item $fp "$InstallDir\" -Force }
     }
 
-    # Step 5: Install examples and docs
-    Write-Host ""
-    Write-Host "  [5/7] Installing examples and documentation..." -ForegroundColor Cyan
-    $localExamples = Join-Path $PSScriptRoot "examples"
-    $localDocs     = Join-Path $PSScriptRoot "docs"
-    if (Test-Path $localExamples) {
-        Copy-Item "$localExamples\*" "$InstallDir\examples\" -Recurse -Force
-        $exCount = (Get-ChildItem "$InstallDir\examples" -Filter "*.ov").Count
-        Write-Host "  [OK] Examples installed ($exCount .ov files)" -ForegroundColor Green
-    }
-    if (Test-Path $localDocs) {
-        Copy-Item "$localDocs\*" "$InstallDir\docs\" -Recurse -Force
-        Write-Host "  [OK] Documentation installed" -ForegroundColor Green
-    }
-    foreach ($f in @("README.md","LICENSE","RELEASE_NOTES_v2.3.md","ovie.png","ovie.svg")) {
-        $src = Join-Path $PSScriptRoot $f
-        if (Test-Path $src) { Copy-Item $src "$InstallDir\" -Force }
+    $stdCount  = (Get-ChildItem "$InstallDir\std"      -Recurse -File -ErrorAction SilentlyContinue).Count
+    $exCount   = (Get-ChildItem "$InstallDir\examples" -Filter "*.ov" -ErrorAction SilentlyContinue).Count
+    Write-Host "  [OK] Standard library installed ($stdCount files, 11 modules)" -ForegroundColor Green
+    Write-Host "  [OK] Examples installed ($exCount .ov files)" -ForegroundColor Green
+
+    # ── Step 5: Cleanup temp clone ───────────────────────────────────────────
+    if ($TempClone -and (Test-Path $TempClone)) {
+        Remove-Item $TempClone -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # Step 6: Add to system PATH
+    # ── Step 6: Add to system PATH ───────────────────────────────────────────
     Write-Host ""
-    Write-Host "  [6/7] Adding Ovie to system PATH..." -ForegroundColor Cyan
+    Write-Host "  [6/6] Adding Ovie to system PATH..." -ForegroundColor Cyan
     $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
     if ($currentPath -notlike "*$BinDir*") {
         [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$BinDir", "Machine")
+        $env:PATH = "$env:PATH;$BinDir"
         Write-Host "  [OK] Added to system PATH (all users)" -ForegroundColor Green
     } else {
         Write-Host "  [OK] Already in system PATH" -ForegroundColor Green
     }
-    # Also add to current session
-    $env:PATH = "$env:PATH;$BinDir"
 
-    # Step 7: Create Start Menu shortcuts
-    Write-Host ""
-    Write-Host "  [7/7] Creating Start Menu shortcuts..." -ForegroundColor Cyan
-    $startMenuDir = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Ovie"
-    New-Item -ItemType Directory -Path $startMenuDir -Force | Out-Null
-    
-    $wsh = New-Object -ComObject WScript.Shell
-    
-    # Ovie Compiler shortcut
-    $sc = $wsh.CreateShortcut("$startMenuDir\Ovie Compiler.lnk")
-    $sc.TargetPath = "$BinDir\oviec.exe"
-    $sc.WorkingDirectory = $InstallDir
-    $sc.Description = "Ovie Programming Language Compiler v$OvieVersion"
-    if (Test-Path "$InstallDir\ovie.png") { $sc.IconLocation = "$InstallDir\ovie.png" }
-    $sc.Save()
-    
-    # Ovie Examples shortcut
-    $sc2 = $wsh.CreateShortcut("$startMenuDir\Ovie Examples.lnk")
-    $sc2.TargetPath = "$InstallDir\examples"
-    $sc2.Description = "Ovie v$OvieVersion Example Programs"
-    $sc2.Save()
-    
-    Write-Host "  [OK] Start Menu shortcuts created" -ForegroundColor Green
-
-    # Verify installation
+    # ── Verify ───────────────────────────────────────────────────────────────
     Write-Host ""
     Write-Host "  Verifying installation..." -ForegroundColor Cyan
     $version = & "$BinDir\oviec.exe" --version 2>&1 | Select-Object -First 1
     Write-Host "  [OK] $version" -ForegroundColor Green
 
-    # Success
+    # ── Success ───────────────────────────────────────────────────────────────
     Write-Host ""
     Write-Host "  ============================================================================" -ForegroundColor Green
     Write-Host "  |                    INSTALLATION COMPLETE!                               |" -ForegroundColor Green
@@ -196,22 +180,16 @@ try {
     Write-Host "  IMPORTANT: Restart your terminal for PATH changes to take effect." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  Quick Start:" -ForegroundColor Cyan
-    Write-Host "    oviec --version              # Check version (2.3.0)" -ForegroundColor White
+    Write-Host "    oviec --version              # Check version" -ForegroundColor White
     Write-Host "    oviec --self-check           # Validate installation" -ForegroundColor White
     Write-Host "    oviec run examples\hello.ov  # Run hello world" -ForegroundColor White
     Write-Host "    oviec new my-project         # Create new project" -ForegroundColor White
     Write-Host ""
-    Write-Host "  v2.3 New Features:" -ForegroundColor Cyan
-    Write-Host "    * Module System: use std::math::{sqrt}" -ForegroundColor White
-    Write-Host "    * Aproko KB: oviec aproko query --symbol add" -ForegroundColor White
-    Write-Host "    * Package Manager: oviec init, oviec add, oviec install" -ForegroundColor White
-    Write-Host ""
     Write-Host "  Resources:" -ForegroundColor Cyan
-    Write-Host "    Website:  https://ovie-lang.org" -ForegroundColor White
+    Write-Host "    Website:  https://ovie.nashedy.io" -ForegroundColor White
     Write-Host "    GitHub:   https://github.com/southwarridev/ovie" -ForegroundColor White
-    Write-Host "    Docs:     $InstallDir\docs\" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Thank you for installing Ovie! " -ForegroundColor Green
+    Write-Host "    Book:     https://southwarridev.github.io/ovie/docs/book/index.html" -ForegroundColor White
+    Write-Host "    Discord:  https://discord.gg/AuF4ubMyE" -ForegroundColor White
     Write-Host ""
 
 } catch {
@@ -219,9 +197,10 @@ try {
     Write-Host "  [ERROR] Installation failed: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "  Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "    * Ensure you are running as Administrator" -ForegroundColor White
-    Write-Host "    * Check internet connection for downloads" -ForegroundColor White
-    Write-Host "    * Download manually: $GithubRepo/releases" -ForegroundColor White
+    Write-Host "    * Make sure you are running as Administrator" -ForegroundColor White
+    Write-Host "    * Make sure Git is installed: https://git-scm.com/download/win" -ForegroundColor White
+    Write-Host "    * Check your internet connection" -ForegroundColor White
+    Write-Host "    * GitHub: https://github.com/southwarridev/ovie" -ForegroundColor White
     Write-Host ""
     exit 1
 }
