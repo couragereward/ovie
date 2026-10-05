@@ -1,334 +1,180 @@
-# Ovie Programming Language - Windows Installer Script
-# v2.3 Self-Hosted Compiler with Advanced Features
-# This script installs Ovie on Windows systems
+#Requires -Version 5.0
+# ============================================================================
+#  Ovie Programming Language v2.3.0 — Windows PowerShell Installer
+#  Works by cloning the repo and copying the prebuilt windows-x64 binaries.
+#  No Rust, no GitHub release zip needed.
+# ============================================================================
 
 param(
-    [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$Version = "2.3.0",
-    [switch]$AddToPath = $true,
-    [switch]$Force = $false,
-    [switch]$IncludeExtension = $true
+    [string]$InstallDir = "C:\Program Files\Ovie",
+    [switch]$Force = $false
 )
 
-# Colors for output (if supported)
-$Host.UI.RawUI.ForegroundColor = "White"
+# ── helpers ──────────────────────────────────────────────────────────────────
+function Write-Step   { param([string]$m) Write-Host "  [>>] $m" -ForegroundColor Cyan }
+function Write-Ok     { param([string]$m) Write-Host "  [OK] $m" -ForegroundColor Green }
+function Write-Fail   { param([string]$m) Write-Host "  [ERROR] $m" -ForegroundColor Red }
+function Write-Warn   { param([string]$m) Write-Host "  [WARN] $m" -ForegroundColor Yellow }
 
-function Write-Status {
-    param([string]$Message)
-    Write-Host "[INFO] $Message" -ForegroundColor Blue
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
-}
-
-function Write-Warning {
-    param([string]$Message)
-    Write-Host "[WARNING] $Message" -ForegroundColor Yellow
-}
-
-function Write-Error {
-    param([string]$Message)
-    Write-Host "[ERROR] $Message" -ForegroundColor Red
-}
-
-function Test-Command {
-    param([string]$Command)
-    try {
-        Get-Command $Command -ErrorAction Stop | Out-Null
-        return $true
-    } catch {
-        return $false
+function Require-Admin {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]"Administrator")
+    if (-not $isAdmin) {
+        Write-Warn "Not running as Administrator — re-launching elevated..."
+        Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+        exit
     }
 }
 
-function Install-Ovie {
-    Write-Host ""
-    Write-Host "🎯 Ovie Programming Language v2.3.0" -ForegroundColor Magenta
-    Write-Host "=======================================" -ForegroundColor Magenta
-    Write-Host "Self-Hosted Compiler with Advanced Features" -ForegroundColor Cyan
-    Write-Host "Version: $Version" -ForegroundColor Yellow
-    Write-Host ""
-    
-    # Display Ovie logo (ASCII art)
-    Write-Host "    ██████╗ ██╗   ██╗██╗███████╗" -ForegroundColor Yellow
-    Write-Host "   ██╔═══██╗██║   ██║██║██╔════╝" -ForegroundColor Yellow  
-    Write-Host "   ██║   ██║██║   ██║██║█████╗  " -ForegroundColor Yellow
-    Write-Host "   ██║   ██║╚██╗ ██╔╝██║██╔══╝  " -ForegroundColor Yellow
-    Write-Host "   ╚██████╔╝ ╚████╔╝ ██║███████╗" -ForegroundColor Yellow
-    Write-Host "    ╚═════╝   ╚═══╝  ╚═╝╚══════╝" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "   Natural Language Programming" -ForegroundColor Cyan
-    Write-Host "   AI-Friendly • Memory Safe • Self-Hosted" -ForegroundColor Green
-    Write-Host ""
-    
-    Write-Status "🚀 Installing Ovie Programming Language v$Version"
-    
-    # Create install directory
-    if (-not (Test-Path $InstallDir)) {
-        Write-Status "Creating install directory: $InstallDir"
-        New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    }
-    
-    # Try to download pre-built binaries first
-    $DownloadUrl = "https://github.com/southwarridev/ovie/releases/download/v$Version/ovie-windows-x64.zip"
-    $TempZip = "$env:TEMP\ovie-windows-x64.zip"
-    
-    Write-Status "Attempting to download pre-built binaries..."
-    
-    try {
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip -ErrorAction Stop
-        Write-Success "Downloaded pre-built binaries"
-        
-        # Extract binaries
-        Expand-Archive -Path $TempZip -DestinationPath $InstallDir -Force
-        Remove-Item $TempZip -Force
-        
-    } catch {
-        Write-Warning "Pre-built binaries not available. Building from source..."
-        
-        # Check if we're in the Ovie source directory
-        if (-not (Test-Path "Cargo.toml") -and -not (Test-Path "ovie.toml")) {
-            Write-Status "Cloning Ovie repository..."
-            $TempDir = "$env:TEMP\ovie-install"
-            if (Test-Path $TempDir) {
-                Remove-Item $TempDir -Recurse -Force
-            }
-            git clone "https://github.com/southwarridev/ovie.git" $TempDir
-            Set-Location $TempDir
-        } else {
-            Write-Status "Using current directory (detected Ovie source)"
-        }
-        
-        # Check if we have oviec binary for self-hosted build
-        if ((Test-Path "oviec.exe") -or (Test-Path "oviec")) {
-            Write-Status "Building with self-hosted Ovie compiler..."
-            & .\oviec.exe --build-all --output-dir="$InstallDir"
-            Write-Success "Built with self-hosted compiler!"
-        } else {
-            Write-Warning "No oviec binary found. Attempting bootstrap build..."
-            
-            # Last resort: use Rust if available (for bootstrapping only)
-            if (Test-Command "cargo") {
-                Write-Status "Bootstrapping Ovie compiler with Rust (one-time only)..."
-                cargo build --release --workspace
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Error "Build failed. Please check the error messages above."
-                    exit 1
-                }
-                
-                # Copy binaries
-                Copy-Item "target\release\ovie.exe" "$InstallDir\" -Force
-                Copy-Item "target\release\oviec.exe" "$InstallDir\" -Force
-            } else {
-                Write-Error "Cannot build Ovie: No self-hosted compiler or Rust toolchain found"
-                Write-Error "Please download a pre-built binary from:"
-                Write-Error "https://github.com/southwarridev/ovie/releases"
-                exit 1
-            }
-        }
-    }
-    
-    # Copy Ovie logo
-    if (Test-Path "ovie.png") {
-        Copy-Item "ovie.png" "$InstallDir\" -Force
-        Write-Status "Installed Ovie logo (ovie.png)"
-    }
-    
-    # Install VS Code extension if requested
-    if ($IncludeExtension -and (Test-Command "code")) {
-        Install-VSCodeExtension
-    }
-    
-    # Add to PATH if requested
-    if ($AddToPath) {
-        Add-ToPath $InstallDir
-    }
-    
-    # Verify installation
-    Test-Installation
-    
-    Write-Success "🎉 Ovie Programming Language v2.3.0 installed successfully!"
-    Write-Status "🎯 Features available:"
-    Write-Host "  • Self-hosted compiler (oviec)" -ForegroundColor Green
-    Write-Host "  • Natural language syntax" -ForegroundColor Green
-    Write-Host "  • LLVM backend for optimization" -ForegroundColor Green
-    Write-Host "  • WebAssembly compilation" -ForegroundColor Green
-    Write-Host "  • Aproko code analyzer" -ForegroundColor Green
-    Write-Host "  • Cross-platform support" -ForegroundColor Green
-    Write-Host "  • Memory safety guarantees" -ForegroundColor Green
-    Write-Host ""
-    Write-Status "Get started with: ovie new my-first-project"
-}
-
-function Install-VSCodeExtension {
-    Write-Status "Installing Ovie VS Code extension..."
-    
-    try {
-        if (Test-Path "extensions\ovie-vscode") {
-            Push-Location "extensions\ovie-vscode"
-            
-            # Install dependencies and build
-            if (Test-Command "npm") {
-                npm install --silent
-                npm run compile
-                
-                # Package and install extension
-                if (Test-Command "vsce") {
-                    npm run package
-                    $vsix = Get-ChildItem -Name "*.vsix" | Select-Object -First 1
-                    if ($vsix) {
-                        code --install-extension $vsix --force
-                        Write-Success "VS Code extension installed successfully"
-                    }
-                } else {
-                    Write-Warning "vsce not found. Install with: npm install -g vsce"
-                }
-            } else {
-                Write-Warning "npm not found. Skipping VS Code extension installation"
-            }
-            
-            Pop-Location
-        }
-    } catch {
-        Write-Warning "Failed to install VS Code extension: $($_.Exception.Message)"
-    }
-}
-
-function Add-ToPath {
-    param([string]$Directory)
-    
-    $CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-    
-    if ($CurrentPath -notlike "*$Directory*") {
-        Write-Status "Adding $Directory to user PATH..."
-        
-        $NewPath = if ($CurrentPath) { "$CurrentPath;$Directory" } else { $Directory }
-        [Environment]::SetEnvironmentVariable("PATH", $NewPath, "User")
-        
-        # Update current session PATH
-        $env:PATH = "$env:PATH;$Directory"
-        
-        Write-Success "Added to PATH. You may need to restart your terminal."
-    } else {
-        Write-Status "Directory already in PATH"
-    }
-}
-
-function Test-Installation {
-    Write-Status "Verifying installation..."
-    
-    $OviePath = Join-Path $InstallDir "ovie.exe"
-    $OviecPath = Join-Path $InstallDir "oviec.exe"
-    
-    if ((Test-Path $OviePath) -and (Test-Path $OviecPath)) {
-        Write-Success "Ovie v2.3.0 installed successfully!"
-        Write-Status "Version information:"
-        
-        try {
-            & $OviePath --version 2>$null
-        } catch {
-            Write-Status "  ovie: installed (CLI tool)"
-        }
-        
-        try {
-            & $OviecPath --version 2>$null
-        } catch {
-            Write-Status "  oviec: installed (self-hosted compiler)"
-        }
-        
-        Write-Status ""
-        Write-Status "🎯 v2.3 Features Available:"
-        Write-Host "  • Natural language programming syntax" -ForegroundColor Green
-        Write-Host "  • Self-hosted compilation with oviec" -ForegroundColor Green  
-        Write-Host "  • LLVM backend optimization" -ForegroundColor Green
-        Write-Host "  • WebAssembly compilation target" -ForegroundColor Green
-        Write-Host "  • Aproko static analysis" -ForegroundColor Green
-        Write-Host "  • Cross-platform deployment" -ForegroundColor Green
-        Write-Host "  • Memory safety guarantees" -ForegroundColor Green
-        Write-Host "  • AI-friendly development" -ForegroundColor Green
-        Write-Host ""
-        Write-Status "Quick start:"
-        Write-Host "  ovie new my-project    # Create a new project"
-        Write-Host "  cd my-project"
-        Write-Host "  ovie run               # Run your project"
-        Write-Host "  ovie aproko            # Run code analysis"
-        Write-Host "  ovie compile --wasm    # Compile to WebAssembly"
-        
-    } else {
-        Write-Error "Installation verification failed"
-        Write-Error "Binaries not found in $InstallDir"
+function Require-Git {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Fail "Git is not installed. Download it from: https://git-scm.com/download/win"
+        Write-Fail "Then re-run this installer."
         exit 1
     }
 }
 
-function Show-Help {
-    Write-Host @"
-Ovie Programming Language - Windows Installer (v2.3)
+# ── banner ────────────────────────────────────────────────────────────────────
+Clear-Host
+Write-Host ""
+Write-Host "  ============================================================================" -ForegroundColor Cyan
+Write-Host "  |                                                                          |" -ForegroundColor Cyan
+Write-Host "  |              OVIE PROGRAMMING LANGUAGE v2.3.0                           |" -ForegroundColor Cyan
+Write-Host "  |              Complete Module System - Full Package                       |" -ForegroundColor Cyan
+Write-Host "  |              Publisher: Ovie Language Team  |  MIT License              |" -ForegroundColor Cyan
+Write-Host "  |                                                                          |" -ForegroundColor Cyan
+Write-Host "  ============================================================================" -ForegroundColor Cyan
+Write-Host ""
 
-DESCRIPTION:
-    Installs Ovie v2.3 with self-hosted compiler and advanced features.
-    
-    v2.3 Features:
-    • Self-hosted compiler (oviec)
-    • Natural language programming syntax
-    • LLVM backend optimization
-    • WebAssembly compilation
-    • Aproko static analysis
-    • Cross-platform support
-    • Memory safety guarantees
-    • AI-friendly development
+# ── preflight ─────────────────────────────────────────────────────────────────
+Require-Admin
+Require-Git
 
-USAGE:
-    .\install.ps1 [OPTIONS]
+$BinDir = "$InstallDir\bin"
 
-OPTIONS:
-    -InstallDir <path>       Installation directory (default: $env:USERPROFILE\.local\bin)
-    -Version <version>       Version to install (default: 2.3.0)
-    -AddToPath              Add install directory to user PATH (default: true)
-    -IncludeExtension       Install VS Code extension (default: true)
-    -Force                  Force installation even if already installed
-    -Help                   Show this help message
+Write-Host "  Install directory : $InstallDir" -ForegroundColor White
+Write-Host "  Binaries          : $BinDir" -ForegroundColor White
+Write-Host ""
 
-EXAMPLES:
-    .\install.ps1                                    # Install with defaults
-    .\install.ps1 -InstallDir "C:\Tools\Ovie"       # Install to custom directory
-    .\install.ps1 -AddToPath:$false                 # Install without modifying PATH
-    .\install.ps1 -IncludeExtension:$false          # Skip VS Code extension
+$confirm = Read-Host "  Press ENTER to install or type 'cancel' to exit"
+if ($confirm -eq "cancel") { exit 0 }
 
-REQUIREMENTS:
-    - Windows 10 or later
-    - PowerShell 5.1 or later
-    - Git (for cloning repository if needed)
-    - Node.js and npm (optional, for VS Code extension)
-    - Visual Studio Code (optional, for extension)
-    
-    Note: Ovie is now fully self-hosted! No Rust installation required.
+Write-Host ""
 
-v2.3 CAPABILITIES:
-    - Compile Ovie code with natural language syntax
-    - Self-hosted compilation for bootstrap independence
-    - Generate optimized native code via LLVM
-    - Compile to WebAssembly for web deployment
-    - Static analysis with Aproko for code quality
-    - Cross-platform deployment (Windows, Linux, macOS)
-    - Memory safety without garbage collection
-    - AI-friendly syntax for LLM integration
-
-"@
-}
-
-# Main execution
 try {
-    if ($args -contains "-Help" -or $args -contains "--help" -or $args -contains "-h") {
-        Show-Help
-        exit 0
+    # ── Step 1: find or clone the repo ───────────────────────────────────────
+    Write-Step "[1/5] Locating Ovie source..."
+
+    # Prefer: script is sitting inside the cloned repo already
+    $RepoRoot = $null
+
+    # Check if this script is inside a repo that has windows-x64\bin\oviec.exe
+    $candidate = $PSScriptRoot
+    if (Test-Path (Join-Path $candidate "windows-x64\bin\oviec.exe")) {
+        $RepoRoot = $candidate
+        Write-Ok "Using local repo at $RepoRoot"
     }
-    
-    Install-Ovie
+
+    # Otherwise clone fresh
+    if (-not $RepoRoot) {
+        $CloneTarget = "$env:TEMP\ovie-install-$(Get-Random)"
+        Write-Step "   Cloning from GitHub (this takes ~30 seconds)..."
+        git clone --depth 1 "https://github.com/southwarridev/ovie.git" $CloneTarget 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "git clone failed. Check your internet connection."
+            exit 1
+        }
+        $RepoRoot = $CloneTarget
+        Write-Ok "Cloned to $RepoRoot"
+    }
+
+    $Src = Join-Path $RepoRoot "windows-x64"
+
+    # Sanity-check the source
+    if (-not (Test-Path "$Src\bin\oviec.exe")) {
+        Write-Fail "Cannot find windows-x64\bin\oviec.exe in the repo. The repo layout may have changed."
+        exit 1
+    }
+
+    # ── Step 2: create directories ───────────────────────────────────────────
+    Write-Step "[2/5] Creating install directories..."
+    foreach ($d in @($InstallDir, $BinDir, "$InstallDir\std", "$InstallDir\examples", "$InstallDir\docs")) {
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+    }
+    Write-Ok "Directories created"
+
+    # ── Step 3: copy binaries ────────────────────────────────────────────────
+    Write-Step "[3/5] Copying binaries..."
+
+    Copy-Item "$Src\bin\oviec.exe" "$BinDir\oviec.exe" -Force
+    Write-Ok "oviec.exe installed"
+
+    # ovie.exe lives at windows-x64\ovie.exe (CLI wrapper)
+    if (Test-Path "$Src\ovie.exe") {
+        Copy-Item "$Src\ovie.exe" "$BinDir\ovie.exe" -Force
+    } else {
+        # Fallback: duplicate oviec as ovie
+        Copy-Item "$BinDir\oviec.exe" "$BinDir\ovie.exe" -Force
+    }
+    Write-Ok "ovie.exe installed"
+
+    # ── Step 4: copy stdlib, examples, docs ─────────────────────────────────
+    Write-Step "[4/5] Copying standard library, examples and docs..."
+
+    if (Test-Path "$Src\std")      { Copy-Item "$Src\std"      "$InstallDir\std"      -Recurse -Force }
+    if (Test-Path "$Src\examples") { Copy-Item "$Src\examples" "$InstallDir\examples" -Recurse -Force }
+    if (Test-Path "$Src\docs")     { Copy-Item "$Src\docs"     "$InstallDir\docs"     -Recurse -Force }
+
+    # Root-level extras
+    foreach ($f in @("README.md","LICENSE","RELEASE_NOTES_v2.3.md","ovie.png","ovie.svg","ovie.toml.template")) {
+        $fp = Join-Path $Src $f
+        if (Test-Path $fp) { Copy-Item $fp "$InstallDir\" -Force }
+    }
+    Write-Ok "Files copied"
+
+    # ── Step 5: PATH ─────────────────────────────────────────────────────────
+    Write-Step "[5/5] Adding $BinDir to system PATH..."
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    if ($currentPath -notlike "*$BinDir*") {
+        [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$BinDir", "Machine")
+        $env:PATH = "$env:PATH;$BinDir"
+        Write-Ok "Added to PATH"
+    } else {
+        Write-Ok "Already in PATH"
+    }
+
+    # ── Cleanup temp clone ────────────────────────────────────────────────────
+    if ($RepoRoot -like "$env:TEMP\*") {
+        Remove-Item $RepoRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # ── Verify ───────────────────────────────────────────────────────────────
+    Write-Host ""
+    Write-Step "Verifying..."
+    $ver = & "$BinDir\oviec.exe" --version 2>&1 | Select-Object -First 1
+    Write-Ok $ver
+
+    # ── Done ─────────────────────────────────────────────────────────────────
+    Write-Host ""
+    Write-Host "  ============================================================================" -ForegroundColor Green
+    Write-Host "  |                  INSTALLATION COMPLETE!                                 |" -ForegroundColor Green
+    Write-Host "  ============================================================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  IMPORTANT: Restart your terminal for PATH changes to take effect." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Quick start:" -ForegroundColor Cyan
+    Write-Host "    oviec --version              # Check version" -ForegroundColor White
+    Write-Host "    oviec --self-check           # Validate installation" -ForegroundColor White
+    Write-Host "    oviec run examples\hello.ov  # Run hello world" -ForegroundColor White
+    Write-Host "    oviec new my-project         # Create new project" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Docs: https://southwarridev.github.io/ovie/docs/book/index.html" -ForegroundColor White
+    Write-Host ""
+
 } catch {
-    Write-Error "Installation failed: $($_.Exception.Message)"
+    Write-Fail "Installation failed: $($_.Exception.Message)"
     exit 1
 }
+
+Write-Host "  Press any key to exit..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
